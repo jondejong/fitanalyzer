@@ -7,7 +7,23 @@ struct IntervalsView: View {
 
     @Environment(ActivityStore.self) private var store
     @State private var selection = Set<IntervalLap.ID>()
-    @AppStorage("intervalTableColumns") private var columns: TableColumnCustomization<IntervalLap>
+    @State private var showingColumns = false
+    /// Raw values of the hidden table columns, comma-separated.
+    @AppStorage("intervalHiddenColumns") private var hiddenColumnsRaw = ""
+
+    private var hiddenColumns: Set<String> {
+        Set(hiddenColumnsRaw.split(separator: ",").map(String.init))
+    }
+
+    private var visibleColumns: [Column] {
+        Column.allCases.filter { !hiddenColumns.contains($0.rawValue) }
+    }
+
+    private func setColumn(_ column: Column, visible: Bool) {
+        var hidden = hiddenColumns
+        if visible { hidden.remove(column.rawValue) } else { hidden.insert(column.rawValue) }
+        hiddenColumnsRaw = hidden.sorted().joined(separator: ",")
+    }
 
     /// Lap sizes offered, in the current distance unit (miles or kilometres).
     private let lapSizes: [Double] = [0.25, 0.5, 1, 5]
@@ -77,15 +93,9 @@ struct IntervalsView: View {
 
             Spacer()
 
-            Menu("Columns", systemImage: "tablecells") {
-                ForEach(Column.allCases.filter(\.canHide)) { column in
-                    Toggle(column.title(units), isOn: Binding(
-                        get: { columns[visibility: column.rawValue] != .hidden },
-                        set: { columns[visibility: column.rawValue] = $0 ? .visible : .hidden }
-                    ))
-                }
-            }
-            .fixedSize()
+            Button("Columns", systemImage: "tablecells") { showingColumns.toggle() }
+                .help("Show or hide table columns")
+                .popover(isPresented: $showingColumns, arrowEdge: .bottom) { columnPicker }
 
             Button("Start Over", systemImage: "arrow.counterclockwise") { setSplits([]) }
                 .disabled(splits.isEmpty)
@@ -93,6 +103,31 @@ struct IntervalsView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 10)
+    }
+
+    /// Checkboxes for each column. Stays open so several can be changed at once.
+    private var columnPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Show Columns")
+                .font(.headline)
+            ForEach(Column.allCases.filter(\.canHide)) { column in
+                Toggle(column.title(units), isOn: Binding(
+                    get: { !hiddenColumns.contains(column.rawValue) },
+                    set: { setColumn(column, visible: $0) }
+                ))
+                .toggleStyle(.checkbox)
+            }
+            Divider()
+            HStack {
+                Button("Show All") { hiddenColumnsRaw = "" }
+                    .disabled(hiddenColumns.isEmpty)
+                Spacer()
+                Button("Done") { showingColumns = false }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 200)
     }
 
     private func sizeLabel(_ size: Double) -> String {
@@ -129,65 +164,17 @@ struct IntervalsView: View {
     }
 
     private func table(laps: [IntervalLap], track: IntervalTrack) -> some View {
-        Table(laps, selection: $selection, columnCustomization: $columns) {
-            Group {
-                TableColumn(Column.lap.title(units)) { (lap: IntervalLap) in
-                    Text("\(lap.id)")
+        Table(laps, selection: $selection) {
+            TableColumnForEach(visibleColumns) { column in
+                TableColumn(column.title(units)) { (lap: IntervalLap) in
+                    cell(column, lap: lap, track: track)
                 }
-                .width(min: 30, ideal: 40, max: 60)
-                .customizationID(Column.lap.rawValue)
-                .disabledCustomizationBehavior(.visibility)
-
-                TableColumn(Column.distance.title(units)) { (lap: IntervalLap) in
-                    TextField("Distance", value: distanceBinding(lap, track: track),
-                              format: .number.precision(.fractionLength(2)))
-                        .textFieldStyle(.plain)
-                        .labelsHidden()
-                }
-                .customizationID(Column.distance.rawValue)
-
-                TableColumn(Column.time.title(units)) { (lap: IntervalLap) in
-                    Text(formatDuration(lap.time))
-                }
-                .customizationID(Column.time.rawValue)
-
-                TableColumn(Column.avgPace.title(units)) { (lap: IntervalLap) in
-                    Text(lap.avgSpeed.map(units.pace) ?? "–")
-                }
-                .customizationID(Column.avgPace.rawValue)
-
-                TableColumn(Column.avgSpeed.title(units)) { (lap: IntervalLap) in
-                    Text(lap.avgSpeed.map(units.speed) ?? "–")
-                }
-                .customizationID(Column.avgSpeed.rawValue)
-            }
-            Group {
-                TableColumn(Column.maxPace.title(units)) { (lap: IntervalLap) in
-                    Text(lap.maxSpeed.map(units.pace) ?? "–")
-                }
-                .customizationID(Column.maxPace.rawValue)
-
-                TableColumn(Column.maxSpeed.title(units)) { (lap: IntervalLap) in
-                    Text(lap.maxSpeed.map(units.speed) ?? "–")
-                }
-                .customizationID(Column.maxSpeed.rawValue)
-
-                TableColumn(Column.avgHR.title(units)) { (lap: IntervalLap) in
-                    Text(heartRate(lap.avgHeartRate))
-                }
-                .customizationID(Column.avgHR.rawValue)
-
-                TableColumn(Column.maxHR.title(units)) { (lap: IntervalLap) in
-                    Text(heartRate(lap.maxHeartRate))
-                }
-                .customizationID(Column.maxHR.rawValue)
-
-                TableColumn(Column.minHR.title(units)) { (lap: IntervalLap) in
-                    Text(heartRate(lap.minHeartRate))
-                }
-                .customizationID(Column.minHR.rawValue)
+                .width(min: column == .lap ? 30 : 50, ideal: column == .lap ? 40 : 100)
             }
         }
+        // Rebuild the table when the column set changes so the remaining columns
+        // are laid out afresh to fill the width.
+        .id(hiddenColumnsRaw)
         .monospacedDigit()
         .contextMenu(forSelectionType: IntervalLap.ID.self) { ids in
             if ids.count > 1, let first = ids.min(), let last = ids.max() {
@@ -199,6 +186,35 @@ struct IntervalsView: View {
         .frame(height: CGFloat(min(laps.count, 14)) * 28 + 36)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+    }
+
+    @ViewBuilder
+    private func cell(_ column: Column, lap: IntervalLap, track: IntervalTrack) -> some View {
+        switch column {
+        case .lap:
+            Text("\(lap.id)")
+        case .distance:
+            TextField("Distance", value: distanceBinding(lap, track: track),
+                      format: .number.precision(.fractionLength(2)))
+                .textFieldStyle(.plain)
+                .labelsHidden()
+        case .time:
+            Text(formatDuration(lap.time))
+        case .avgPace:
+            Text(lap.avgSpeed.map(units.pace) ?? "–")
+        case .avgSpeed:
+            Text(lap.avgSpeed.map(units.speed) ?? "–")
+        case .maxPace:
+            Text(lap.maxSpeed.map(units.pace) ?? "–")
+        case .maxSpeed:
+            Text(lap.maxSpeed.map(units.speed) ?? "–")
+        case .avgHR:
+            Text(heartRate(lap.avgHeartRate))
+        case .maxHR:
+            Text(heartRate(lap.maxHeartRate))
+        case .minHR:
+            Text(heartRate(lap.minHeartRate))
+        }
     }
 
     private func heartRate(_ value: Double?) -> String {
