@@ -26,7 +26,9 @@ struct IntervalsView: View {
     }
 
     /// Lap sizes offered, in the current distance unit (miles or kilometres).
-    private let lapSizes: [Double] = [0.25, 0.5, 1, 5]
+    private var lapSizes: [Double] {
+        units == .metric ? [0.5, 1, 2, 5, 10] : [0.25, 0.5, 1, 5]
+    }
 
     private var splits: [Double] { store.intervalSplits[activity.id] ?? [] }
 
