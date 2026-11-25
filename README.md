@@ -44,7 +44,9 @@ The Intervals tab lets you define your own laps, independent of what the device 
 
 ### Creating laps
 
-Choose **Create Laps** and pick a distance: every 0.25, 0.5, 1 or 5 miles (or kilometres, in metric). You can also start from **Laps Recorded in File**. Choosing again replaces the current laps.
+Choose **Create Laps** and pick a distance: every 0.25, 0.5, 1 or 5 miles, or in metric every 0.5, 1, 2, 5 or 10 km. You can also start from **Laps Recorded in File**. Choosing again replaces the current laps.
+
+Switching between metric and imperial clears the laps of every open activity, since they were defined in the other unit.
 
 ### The lap table
 

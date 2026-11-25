@@ -55,6 +55,8 @@ struct ContentView: View {
                     .help("Open FIT files")
             }
         }
+        // Laps are defined in the old unit's distances, so they don't carry over.
+        .onChange(of: units) { store.intervalSplits.removeAll() }
         .fileImporter(isPresented: $store.isImporting, allowedContentTypes: [.fit], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { store.open(urls) }
         }
